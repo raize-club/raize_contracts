@@ -4,6 +4,7 @@ use starknet::ContractAddress;
 struct Market {
     name: ByteArray,
     outcomes: (Outcome, Outcome),
+    category: felt252,
     isSettled: bool,
     isActive: bool,
     betToken: ContractAddress,
@@ -22,10 +23,10 @@ struct Outcome {
 #[starknet::interface]
 trait IMarketFactory<TContractState> {
     fn createMarket(
-        ref self: TContractState, name: ByteArray, outcomes: (Outcome, Outcome), moneyInPool: u256, betToken: ContractAddress
-    ); //done
+        ref self: TContractState, name: ByteArray, outcomes: (Outcome, Outcome), moneyInPool: u256, betToken: ContractAddress, category: felt252
+    ); 
 
-    fn getMarketCount(self: @TContractState) -> u256; //done
+    fn getMarketCount(self: @TContractState) -> u256; 
 
     fn mintShares(
         ref self: TContractState,
@@ -33,24 +34,26 @@ trait IMarketFactory<TContractState> {
         tokenToMint: u8,
         receiver: ContractAddress,
         amount: u256
-    ) -> bool; //done
+    ) -> bool; 
 
     fn burnShares(
         ref self: TContractState,
         marketId: u256,
         tokenToBurn: u8,
         receiver: ContractAddress,
-    ) -> bool; // done
+    ) -> bool; 
 
-    fn settleMarket(ref self: TContractState, marketId: u256, winningOutcome: Outcome); // done
+    fn settleMarket(ref self: TContractState, marketId: u256, winningOutcome: Outcome); 
 
-    fn toggleMarketStatus(ref self: TContractState, marketId: u256); //done
+    fn toggleMarketStatus(ref self: TContractState, marketId: u256); 
 
-    fn claimWinnings(ref self: TContractState, marketId: u256, receiver: ContractAddress); // done
+    fn claimWinnings(ref self: TContractState, marketId: u256, receiver: ContractAddress); 
 
-    fn getMarket(self: @TContractState, marketId: u256) -> Market; //done
+    fn getMarket(self: @TContractState, marketId: u256) -> Market;  
 
-    fn updateTreasuryAccount(ref self: TContractState, newTreasury: ContractAddress); // done
+    fn getAllMarkets(self: @TContractState) -> Array<Market>; 
+
+    fn getMarketByCategory(self: @TContractState, category: felt252) -> Array<Market>; 
 }
 
 trait IMarketFactoryImpl<TContractState> {
@@ -72,27 +75,27 @@ use core::box::BoxTrait;
 use core::option::OptionTrait;
 use core::array::ArrayTrait;
 use super::{Market, Outcome};
-    use starknet::{ContractAddress, get_caller_address};
+    use starknet::{ContractAddress, get_caller_address, get_contract_address};
     use core::num::traits::zero::Zero;
     use openzeppelin::token::erc20::interface::IERC20Dispatcher;
 
     const one: u256 = 1_000_000_000_000_000_000;
     const MAX_ITERATIONS: u16 = 25;
+    const PLATFORM_FEE: u16 = 20;
     #[storage]
     struct Storage {
         userBet: LegacyMap::<(ContractAddress, u256), Outcome>,
         // markets: Array<Market>
         markets: LegacyMap::<u256, Market>,
         idx: u256,
-        treasury: ContractAddress,
+        treasury: LegacyMap::<ContractAddress, u256>,
         userPortfolio: LegacyMap::<
             (ContractAddress, Outcome), u256
         >, // read outcome with market id and user name, then read portfolio using contract address and outcome.
     }
 
     #[constructor]
-    fn constructor(ref self: ContractState, treasury: ContractAddress) {
-        self.treasury.write(treasury);
+    fn constructor(ref self: ContractState) {
     }
 
     impl MarketFactoryImpl of super::IMarketFactoryImpl<ContractState> {
@@ -212,7 +215,8 @@ use super::{Market, Outcome};
             name: ByteArray,
             outcomes: (Outcome, Outcome),
             moneyInPool: u256,
-            betToken: ContractAddress
+            betToken: ContractAddress,
+            category: felt252
         ) {
             let market = Market {
                 name,
@@ -221,7 +225,8 @@ use super::{Market, Outcome};
                 isActive: true,
                 winningOutcome: Option::None,
                 betToken: betToken,
-                moneyInPool
+                moneyInPool,
+                category,
             };
             self.markets.write(self.idx.read(), market);
         }
@@ -255,8 +260,8 @@ use super::{Market, Outcome};
                     let dispatcher = IERC20Dispatcher { contract_address: market.betToken };
                     // token approval and transfer to treasury from user.
                     
-                    let _approval = dispatcher.approve(self.treasury.read(), amount);
-                    let txn: bool = dispatcher.transfer_from(get_caller_address(), self.treasury.read(), amount);
+                    let _approval = dispatcher.approve(get_contract_address(), amount);
+                    let txn: bool = dispatcher.transfer_from(get_caller_address(), get_contract_address(), amount);
                     self.userBet.write((receiver, marketId), outcome);
                     self.userPortfolio.write((receiver, outcome), amount);
                     txn
@@ -315,8 +320,33 @@ use super::{Market, Outcome};
             self.markets.write(marketId, market);
         }
 
-        fn updateTreasuryAccount(ref self: ContractState, newTreasury: ContractAddress) {
-            self.treasury.write(newTreasury);
+        fn getAllMarkets(self: @ContractState) -> Array<Market> {
+            let mut markets: Array<Market> = ArrayTrait::new();
+            let mut i: u256 = 0;
+            loop {
+                if i == self.idx.read() {
+                    break;
+                }
+                markets.append(self.markets.read(i));
+                i += 1;
+            };
+            markets
+        }
+
+        fn getMarketByCategory(self: @ContractState, category: felt252) -> Array<Market> {
+            let mut markets: Array<Market> = ArrayTrait::new();
+            let mut i: u256 = 0;
+            loop {
+                if i == self.idx.read() {
+                    break;
+                }
+                let market = self.markets.read(i);
+                if market.category == category {
+                    markets.append(market);
+                }
+                i += 1;
+            };
+            markets
         }
     }
 
