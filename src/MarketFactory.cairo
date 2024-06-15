@@ -65,10 +65,6 @@ trait IMarketFactoryImpl<TContractState> {
     fn isMarketResolved(self: @TContractState, marketId: u256) -> bool;
 }
 
-// let address_eth: ByteArray = "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7";
-
-
-
 #[starknet::contract]
 mod MarketFactory {
     use openzeppelin::token::erc20::interface::IERC20DispatcherTrait;
