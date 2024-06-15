@@ -23,10 +23,15 @@ struct Outcome {
 #[starknet::interface]
 trait IMarketFactory<TContractState> {
     fn createMarket(
-        ref self: TContractState, name: ByteArray, outcomes: (Outcome, Outcome), moneyInPool: u256, betToken: ContractAddress, category: felt252
-    ); 
+        ref self: TContractState,
+        name: ByteArray,
+        outcomes: (Outcome, Outcome),
+        moneyInPool: u256,
+        betToken: ContractAddress,
+        category: felt252
+    );
 
-    fn getMarketCount(self: @TContractState) -> u256; 
+    fn getMarketCount(self: @TContractState) -> u256;
 
     fn mintShares(
         ref self: TContractState,
@@ -34,26 +39,31 @@ trait IMarketFactory<TContractState> {
         tokenToMint: u8,
         receiver: ContractAddress,
         amount: u256
-    ) -> bool; 
+    ) -> bool;
 
     fn burnShares(
-        ref self: TContractState,
-        marketId: u256,
-        tokenToBurn: u8,
-        receiver: ContractAddress,
-    ) -> bool; 
+        ref self: TContractState, marketId: u256, tokenToBurn: u8, receiver: ContractAddress,
+    ) -> bool;
 
-    fn settleMarket(ref self: TContractState, marketId: u256, winningOutcome: Outcome); 
+    fn settleMarket(ref self: TContractState, marketId: u256, winningOutcome: Outcome);
 
-    fn toggleMarketStatus(ref self: TContractState, marketId: u256); 
+    fn toggleMarketStatus(ref self: TContractState, marketId: u256);
 
-    fn claimWinnings(ref self: TContractState, marketId: u256, receiver: ContractAddress); 
+    fn claimWinnings(ref self: TContractState, marketId: u256, receiver: ContractAddress);
 
-    fn getMarket(self: @TContractState, marketId: u256) -> Market;  
+    fn getMarket(self: @TContractState, marketId: u256) -> Market;
 
-    fn getAllMarkets(self: @TContractState) -> Array<Market>; 
+    fn getAllMarkets(self: @TContractState) -> Array<Market>;
 
-    fn getMarketByCategory(self: @TContractState, category: felt252) -> Array<Market>; 
+    fn getMarketByCategory(self: @TContractState, category: felt252) -> Array<Market>;
+    
+    // functions to define if we implement pools for the betting platform.
+
+    // fn createTokenPool(ref self: TContractState, tokenAddress: ContractAddress, initialLiquidity: u256) ->  ContractAddress;
+
+    // fn addLiquidity(ref self: TContractState, poolAddress: ContractAddress, amount: u256) -> bool;
+
+    // fn removeLiquidity(ref self: TContractState, poolAddress: ContractAddress, amount: u256) -> bool;
 }
 
 trait IMarketFactoryImpl<TContractState> {
@@ -71,10 +81,10 @@ trait IMarketFactoryImpl<TContractState> {
 #[starknet::contract]
 mod MarketFactory {
     use openzeppelin::token::erc20::interface::IERC20DispatcherTrait;
-use core::box::BoxTrait;
-use core::option::OptionTrait;
-use core::array::ArrayTrait;
-use super::{Market, Outcome};
+    use core::box::BoxTrait;
+    use core::option::OptionTrait;
+    use core::array::ArrayTrait;
+    use super::{Market, Outcome};
     use starknet::{ContractAddress, get_caller_address, get_contract_address};
     use core::num::traits::zero::Zero;
     use openzeppelin::token::erc20::interface::IERC20Dispatcher;
@@ -95,8 +105,7 @@ use super::{Market, Outcome};
     }
 
     #[constructor]
-    fn constructor(ref self: ContractState) {
-    }
+    fn constructor(ref self: ContractState) {}
 
     impl MarketFactoryImpl of super::IMarketFactoryImpl<ContractState> {
         fn isMarketResolved(self: @ContractState, marketId: u256) -> bool {
@@ -122,17 +131,18 @@ use super::{Market, Outcome};
                 let mut odds: Array<u256> = ArrayTrait::new();
                 odds.append(outcome1.currentOdds);
                 odds.append(outcome2.currentOdds);
-                let adjustedOdds: Array<u256> = self.marginAdjustedOdds(marketId, @probabilities, margin);
+                let adjustedOdds: Array<u256> = self
+                    .marginAdjustedOdds(marketId, @probabilities, margin);
                 adjustedOdds
-            }
-            else {
+            } else {
                 let mut odds: Array<u256> = ArrayTrait::new();
                 let mut i: usize = 0;
                 loop {
                     if i > 1 {
                         break;
                     }
-                    let odd = (outcome1.boughtShares + outcome2.boughtShares) / outcome1.boughtShares;
+                    let odd = (outcome1.boughtShares + outcome2.boughtShares)
+                        / outcome1.boughtShares;
                     odds.append(odd);
                     i += 1;
                 };
@@ -141,7 +151,7 @@ use super::{Market, Outcome};
         }
 
         fn marginAdjustedOdds(
-            ref self: ContractState,marketId: u256, probabilities: @Array<u256>, margin: u256
+            ref self: ContractState, marketId: u256, probabilities: @Array<u256>, margin: u256
         ) -> Array<u256> {
             let length: usize = probabilities.len();
             let mut odds: Array<u256> = ArrayTrait::new();
@@ -163,29 +173,37 @@ use super::{Market, Outcome};
                 let mut oddsSpread: u256 = 0;
                 {
                     let mut spread: u256 = 0;
-                    let mut j: usize = 0; 
+                    let mut j: usize = 0;
+                    let spreadsCopy = spreads.clone();
                     loop {
                         if j == length {
                             break;
                         }
-                        let odds_ = (one - 0)/ *probabilities.at(j);
-                        // let odds_ = (one - *spreads.at(j))/ *probabilities.at(j);
+                        let odds_ = (one - *spreadsCopy.at(j)) / *probabilities.at(j);
                         odds.append(odds_);
                         spread += one / odds_;
                         j += 1;
                     };
                     oddsSpread = one - one / spread;
                 }
-                // let mut iterator: usize = 0;
-                // let mut refinedSpread: Array<u256> = ArrayTrait::new();
-                // loop {
-                //     if iterator == length {
-                //         break;
-                //     }
-                //     // let spread_ = *spreads.at(iterator) + (one - *spreads.at(iterator) - *probabilities.at(iterator)) * sigmoid((margin * *spreads.at(iterator)) / (one - one / *odds.at(iterator))/ ((one - margin) / oddsSpread));
-                //     refinedSpread.append(spread_);
-                //     iterator += 1;
-                // };
+                let mut iterator: usize = 0;
+                let mut refinedSpread: Array<u256> = ArrayTrait::new();
+                let spreadsCopy = spreads.clone();
+                let oddsCopy = odds.clone();
+                loop {
+                    if iterator == length {
+                        break;
+                    }
+                    let spread_ = *spreadsCopy.at(iterator)
+                        + (one - *spreadsCopy.at(iterator) - *probabilities.at(iterator))
+                            * sigmoid(
+                                (margin * *spreadsCopy.at(iterator))
+                                    / (one - one / *oddsCopy.at(iterator))
+                                    / ((one - margin) / oddsSpread)
+                            );
+                    refinedSpread.append(spread_);
+                    iterator += 1;
+                };
             };
             odds
         }
@@ -258,10 +276,9 @@ use super::{Market, Outcome};
                 if token.boughtShares.is_zero() {
                     let outcome = outcome1;
                     let dispatcher = IERC20Dispatcher { contract_address: market.betToken };
-                    // token approval and transfer to treasury from user.
-                    
                     let _approval = dispatcher.approve(get_contract_address(), amount);
-                    let txn: bool = dispatcher.transfer_from(get_caller_address(), get_contract_address(), amount);
+                    let txn: bool = dispatcher
+                        .transfer_from(get_caller_address(), get_contract_address(), amount);
                     self.userBet.write((receiver, marketId), outcome);
                     self.userPortfolio.write((receiver, outcome), amount);
                     txn
@@ -282,10 +299,7 @@ use super::{Market, Outcome};
         }
 
         fn burnShares(
-            ref self: ContractState,
-            marketId: u256,
-            tokenToBurn: u8,
-            receiver: ContractAddress,
+            ref self: ContractState, marketId: u256, tokenToBurn: u8, receiver: ContractAddress,
         ) -> bool {
             let token = self.userBet.read((receiver, marketId));
             let betAmount = self.userPortfolio.read((receiver, token));
@@ -349,6 +363,4 @@ use super::{Market, Outcome};
             markets
         }
     }
-
-
 }
