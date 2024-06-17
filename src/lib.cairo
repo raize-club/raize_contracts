@@ -7,5 +7,6 @@
 // The contract also allows users to resolve the market, which locks in the final outcome and distributes the money to the winning traders.
 // The contract is implemented in Cairo, and can be deployed on the StarkNet network.
 pub mod MarketFactory;
+pub mod erc20;
 #[cfg(test)]
 mod tests;

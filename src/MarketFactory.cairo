@@ -19,7 +19,6 @@ pub struct Outcome {
     boughtShares: u256,
 }
 
-
 #[starknet::interface]
 pub trait IMarketFactory<TContractState> {
     fn createMarket(
@@ -32,11 +31,7 @@ pub trait IMarketFactory<TContractState> {
 
     fn getMarketCount(self: @TContractState) -> u256;
 
-    fn mintShares(ref self: TContractState, marketId: u256, tokenToMint: u8, amount: u256) -> bool;
-
-    fn burnShares(
-        ref self: TContractState, marketId: u256, tokenToBurn: u8, receiver: ContractAddress,
-    ) -> bool;
+    fn buyShares(ref self: TContractState, marketId: u256, tokenToMint: u8, amount: u256) -> bool;
 
     fn settleMarket(ref self: TContractState, marketId: u256, winningOutcome: Outcome);
 
@@ -53,6 +48,8 @@ pub trait IMarketFactory<TContractState> {
     fn getContractOwner(self: @TContractState) -> ContractAddress;
 
     fn calcProbabilty(ref self: TContractState, marketId: u256, outcome: Outcome) -> u256;
+
+    fn withdrawFromTreasury(ref self: TContractState, token: ContractAddress) -> bool;
 // functions to define if we implement pools for the betting platform.
 
 // fn createTokenPool(ref self: TContractState, tokenAddress: ContractAddress, initialLiquidity: u256) ->  ContractAddress;
@@ -105,9 +102,6 @@ pub mod MarketFactory {
         self.owner.write(get_caller_address());
     }
 
-    fn sigmoid(x: u256) -> u256 {
-        return (1 * x) / (1 + x);
-    }
 
     fn createShareTokens(names: (felt252, felt252)) -> (Outcome, Outcome) {
         let (name1, name2) = names;
@@ -158,7 +152,7 @@ pub mod MarketFactory {
         }
 
         // creates a position in a market for a user
-        fn mintShares(
+        fn buyShares(
             ref self: ContractState, marketId: u256, tokenToMint: u8, amount: u256
         ) -> bool {
             let mut market = self.markets.read(marketId);
@@ -171,6 +165,8 @@ pub mod MarketFactory {
                 let _approval = dispatcher.approve(get_contract_address(), amount);
                 let txn: bool = dispatcher
                     .transfer_from(get_caller_address(), get_contract_address(), amount);
+                let treasuryBalance = self.treasury.read(market.betToken);
+                self.treasury.write(market.betToken, treasuryBalance + amount * PLATFORM_FEE / 100);
                 outcome.boughtShares = outcome.boughtShares + amount;
                 let updatedOdds = self.calcOdds(marketId);
                 let mut otherOutcome = outcome2;
@@ -195,20 +191,6 @@ pub mod MarketFactory {
             }
         }
 
-        fn burnShares(
-            ref self: ContractState, marketId: u256, tokenToBurn: u8, receiver: ContractAddress,
-        ) -> bool {
-            let token = self.userBet.read((receiver, marketId));
-            let betAmount = self.userPortfolio.read((receiver, token));
-            if betAmount.is_zero() {
-                false
-            } else {
-                // token transfer to user from treasury.
-                self.userPortfolio.write((receiver, token), 0);
-                true
-            }
-        }
-
         fn claimWinnings(ref self: ContractState, marketId: u256, receiver: ContractAddress) {
             assert!(marketId <= self.idx.read(), "Market does not exist");
             let market = self.markets.read(marketId);
@@ -217,9 +199,10 @@ pub mod MarketFactory {
             let betAmount: u256 = self.userPortfolio.read((receiver, userOutcome));
             let mut winnings = 0;
             let winningOutcome = market.winningOutcome.unwrap();
-            if userOutcome == winningOutcome {
-                winnings = betAmount * market.moneyInPool / userOutcome.boughtShares;
-            }
+            assert!(userOutcome == winningOutcome, "User didn't win!");
+            winnings = betAmount * market.moneyInPool / userOutcome.boughtShares;
+            let dispatcher = IERC20Dispatcher { contract_address: market.betToken };
+            dispatcher.transfer(receiver, winnings);
             self.userPortfolio.write((receiver, userOutcome), 0);
         }
 
@@ -271,6 +254,13 @@ pub mod MarketFactory {
             let outcomeShares = outcome.boughtShares;
             return outcomeShares / totalShares;
         }
+
+        fn withdrawFromTreasury(ref self: ContractState, token: ContractAddress) -> bool {
+            let treasuryBalance = self.treasury.read(token);
+            let dispatcher = IERC20Dispatcher { contract_address: token };
+            let tx = dispatcher.transfer(self.owner.read(), treasuryBalance);
+            tx
+        }
     }
 
     impl MarketFactoryImpl of super::IMarketFactoryImpl<ContractState> {
@@ -282,17 +272,6 @@ pub mod MarketFactory {
         fn calcOdds(ref self: ContractState, marketId: u256) -> Array<u256> {
             let market = self.markets.read(marketId);
             let (outcome1, outcome2) = market.outcomes;
-            // if margin > 0 {
-            //     let mut probabilities: Array<u256> = ArrayTrait::new();
-            //     probabilities.append(self.calcProbabilty(marketId, outcome1));
-            //     probabilities.append(self.calcProbabilty(marketId, outcome2));
-            //     let mut odds: Array<u256> = ArrayTrait::new();
-            //     odds.append(outcome1.currentOdds);
-            //     odds.append(outcome2.currentOdds);
-            //     let adjustedOdds: Array<u256> = self
-            //         .marginAdjustedOdds(marketId, @probabilities, margin);
-            //     adjustedOdds
-            // } else {
             let mut odds: Array<u256> = ArrayTrait::new();
             let oddOutcome1 = (outcome1.boughtShares + outcome2.boughtShares)
                 / outcome1.boughtShares;
@@ -303,62 +282,5 @@ pub mod MarketFactory {
             odds
         // }
         }
-    // fn marginAdjustedOdds(
-    //     ref self: ContractState, marketId: u256, probabilities: @Array<u256>, margin: u256
-    // ) -> Array<u256> {
-    //     let length: usize = probabilities.len();
-    //     let mut odds: Array<u256> = ArrayTrait::new();
-    //     let mut spreads: Array<u256> = ArrayTrait::new();
-    //     let mut i: usize = 0;
-    //     loop {
-    //         if i == length {
-    //             break;
-    //         }
-    //         let spread = (one - *probabilities.at(i) * margin);
-    //         spreads.append(spread);
-    //         i += 1;
-    //     };
-    //     let mut iteration: u16 = 0;
-    //     loop {
-    //         if iteration == MAX_ITERATIONS {
-    //             break;
-    //         }
-    //         let mut oddsSpread: u256 = 0;
-    //         {
-    //             let mut spread: u256 = 0;
-    //             let mut j: usize = 0;
-    //             let spreadsCopy = spreads.clone();
-    //             loop {
-    //                 if j == length {
-    //                     break;
-    //                 }
-    //                 let odds_ = (one - *spreadsCopy.at(j)) / *probabilities.at(j);
-    //                 odds.append(odds_);
-    //                 spread += one / odds_;
-    //                 j += 1;
-    //             };
-    //             oddsSpread = one - one / spread;
-    //         }
-    //         let mut iterator: usize = 0;
-    //         let mut refinedSpread: Array<u256> = ArrayTrait::new();
-    //         let spreadsCopy = spreads.clone();
-    //         let oddsCopy = odds.clone();
-    //         loop {
-    //             if iterator == length {
-    //                 break;
-    //             }
-    //             let spread_ = *spreadsCopy.at(iterator)
-    //                 + (one - *spreadsCopy.at(iterator) - *probabilities.at(iterator))
-    //                     * sigmoid(
-    //                         (margin * *spreadsCopy.at(iterator))
-    //                             / (one - one / *oddsCopy.at(iterator))
-    //                             / ((one - margin) / oddsSpread)
-    //                     );
-    //             refinedSpread.append(spread_);
-    //             iterator += 1;
-    //         };
-    //     };
-    //     odds
-    // }
     }
 }
