@@ -1,6 +1,6 @@
-## raize.club
+# raize.club
 
-# raize.club is a Prediction Market deployed on STARKNET, which allows users to win money by taking their picks on real-life events.
+## raize.club is a Prediction Market deployed on STARKNET, which allows users to win money by taking their picks on real-life events.
 
 This is the contacts repo for raize.club, which serves as the backend for the dApp.
 
