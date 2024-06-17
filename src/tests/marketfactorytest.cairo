@@ -2,18 +2,17 @@ use snforge_std::{declare, start_mock_call, test_address, ContractClassTrait};
 use starknet::{ContractAddress, contract_address_const, get_caller_address};
 use raize_contracts::MarketFactory::{IMarketFactoryDispatcher, IMarketFactoryDispatcherTrait};
 use raize_contracts::MarketFactory::{Outcome, Market};
-use raize_contracts::tests::erc20_mocks::CamelERC20Mock;
+use openzeppelin::tests::mocks::erc20_mocks::{CamelERC20Mock};
 use openzeppelin::token::erc20::interface::{
     IERC20Camel, IERC20CamelDispatcher, IERC20CamelDispatcherTrait
 };
 use core::fmt::Debug;
-use core::array::ArrayTrait;
+use array::ArrayTrait;
 use core::traits::Into;
 use core::result::{ResultTrait};
 use openzeppelin::utils::serde::SerializedAppend;
 use core::pedersen::pedersen;
 use starknet::testing::{set_contract_address, set_caller_address};
-use core::starknet::SyscallResultTrait;
 const PRECISION: u256 = 1_000_000_000_000_000_000;
 
 #[derive(Drop, Serde)]
@@ -60,8 +59,7 @@ impl ERC20ConstructorArgumentsImpl of ERC20ConstructorArgumentsTrait {
 
 #[test]
 fn fakeERCDeployment() {
-    let amount:u256=10000;
-    let erc20 = deploy_token(get_caller_address(), amount);
+    let erc20 = deploy_token(get_caller_address(), 10000);
     assert_eq!(erc20, test_address());
 }
 // fn createMarket() {
