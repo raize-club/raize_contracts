@@ -6,4 +6,6 @@
 // Shares in the market are represented as ERC20 tokens, which can be used to claim winnings.
 // The contract also allows users to resolve the market, which locks in the final outcome and distributes the money to the winning traders.
 // The contract is implemented in Cairo, and can be deployed on the StarkNet network.
-mod MarketFactory;
+pub mod MarketFactory;
+#[cfg(test)]
+mod tests;

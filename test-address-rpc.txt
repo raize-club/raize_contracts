@@ -1,0 +1,3 @@
+0x76bdde92c656bf6e0243d0849dcd8fdca072ec329b9d3d2b8ce53e62ae9ea27
+
+https://starknet-sepolia.public.blastapi.io
