@@ -1,7 +1,7 @@
 #[starknet::contract]
 pub mod CamelERC20Mock {
+    use starknet::{ContractAddress, get_caller_address, get_contract_address};
     use openzeppelin::token::erc20::{ERC20Component, ERC20HooksEmptyImpl};
-    use starknet::ContractAddress;
 
     component!(path: ERC20Component, storage: erc20, event: ERC20Event);
 
@@ -29,15 +29,9 @@ pub mod CamelERC20Mock {
     }
 
     #[constructor]
-    fn constructor(
-        ref self: ContractState,
-        name: ByteArray,
-        symbol: ByteArray,
-        initial_supply: u256,
-        recipient: ContractAddress
-    ) {
-        self.erc20.initializer(name, symbol);
-        self.erc20._mint(recipient, initial_supply);
+    fn constructor(ref self: ContractState, recipient: ContractAddress) {
+        self.erc20.initializer("Raize Token", "RZT");
+        self.erc20._mint(recipient, 100000);
     }
 
     #[abi(per_item)]
@@ -58,6 +52,11 @@ pub mod CamelERC20Mock {
         #[external(v0)]
         fn approve(ref self: ContractState, spender: ContractAddress, amount: u256) -> bool {
             self.erc20.approve(spender, amount)
+        }
+
+        #[external(v0)]
+        fn balance_of(self: @ContractState, account: ContractAddress) -> u256 {
+            self.erc20.balance_of(account)
         }
     }
 }
