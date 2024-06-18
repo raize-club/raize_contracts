@@ -56,6 +56,13 @@ pub mod CamelERC20Mock {
         }
 
         #[external(v0)]
+        fn transfer_from(
+            ref self: ContractState, sender: ContractAddress, receiver: ContractAddress, amount: u256
+        ) -> bool {
+            self.erc20.transfer_from(sender, receiver, amount)
+        }
+
+        #[external(v0)]
         fn balance_of(self: @ContractState, account: ContractAddress) -> u256 {
             self.erc20.balance_of(account)
         }
