@@ -29,8 +29,9 @@ pub mod CamelERC20Mock {
     }
 
     #[constructor]
-    fn constructor(ref self: ContractState, recipient: ContractAddress) {
-        self.erc20.initializer("Raize Token", "RZT");
+    fn constructor(ref self: ContractState) {
+        self.erc20.initializer("RaizeToken", "RZT");
+        let recipient = get_caller_address();
         self.erc20._mint(recipient, 100000);
     }
 

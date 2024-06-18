@@ -23,8 +23,7 @@ const PRECISION: u256 = 1_000_000_000_000_000_000;
 
 fn deploy_token() -> ContractAddress {
     let erc20_class_hash = declare("CamelERC20Mock").unwrap();
-    let mut calldata = ArrayTrait::new();
-    calldata.append(get_caller_address().try_into().unwrap());
+    let mut calldata = array![];
     let (contract_address, _) = erc20_class_hash.deploy(@calldata).unwrap();
     contract_address
 }
@@ -52,6 +51,7 @@ fn deployMarketContract() -> ContractAddress {
     contract_deploy_address
 }
 
+// should create a market
 #[test]
 fn createMarket() {
     let marketContract = deployMarketContract();
@@ -59,7 +59,16 @@ fn createMarket() {
 
     let dispatcher = IMarketFactoryDispatcher { contract_address: marketContract };
 
-    dispatcher.createMarket("Will it rain tomorrow?", ('Yes', 'No'), tokenAddress, 'Life');
+    dispatcher
+        .createMarket(
+            "Trump vs Biden",
+            "Will Trump emerge victorious again?",
+            ('Yes', 'No'),
+            tokenAddress,
+            'Life',
+            "trump.png",
+            1818704106
+        );
 
     let marketCount = dispatcher.getMarketCount();
 
@@ -67,6 +76,7 @@ fn createMarket() {
 }
 
 
+// should take bets
 #[test]
 fn shouldAcceptBets() {
     let marketContract = deployMarketContract();
@@ -74,11 +84,23 @@ fn shouldAcceptBets() {
 
     let dispatcher = IMarketFactoryDispatcher { contract_address: marketContract };
 
-    let tokenDispatcher = IERC20Dispatcher { contract_address: tokenAddress };
+    dispatcher
+        .createMarket(
+            "Trump vs Biden",
+            "Will Trump emerge victorious again?",
+            ('Yes', 'No'),
+            tokenAddress,
+            'Life',
+            "trump.png",
+            1818704106
+        );
 
-    dispatcher.createMarket("Will it rain tomorrow?", ('Yes', 'No'), tokenAddress, 'Life');
-
-    assert_eq!(tokenDispatcher.balance_of(get_caller_address()), 10000);
-// dispatcher.buyShares(0, 0, 10);
+    dispatcher.buyShares(0, 0, 10);
 }
+
+// should change odds after every bet
+// should keep fees in treasury after every txn
+// should add money in main liquidity pool for whatever amount is added per market
+// should let people claim winnings
+// should let owner withdraw fees from treasury
 
