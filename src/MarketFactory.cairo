@@ -4,7 +4,7 @@ use starknet::ContractAddress;
 pub struct Market {
     name: ByteArray,
     description: ByteArray,
-    pub outcomes: (Outcome, Outcome),
+    outcomes: (Outcome, Outcome),
     category: felt252,
     image: ByteArray,
     isSettled: bool,
@@ -12,13 +12,13 @@ pub struct Market {
     deadline: felt252,
     betToken: ContractAddress,
     winningOutcome: Option<Outcome>,
-    pub moneyInPool: u256,
+    moneyInPool: u256,
 }
 
 #[derive(Drop, Copy, Serde, starknet::Store, PartialEq, Eq, Hash)]
 pub struct Outcome {
     name: felt252,
-    pub currentOdds: u256,
+    currentOdds: u256,
     boughtShares: u256,
 }
 
@@ -61,13 +61,15 @@ pub trait IMarketFactory<TContractState> {
 
     fn calcProbabilty(self: @TContractState, marketId: u256, outcome: Outcome) -> u256;
 
-    fn withdrawFromTreasury(ref self: TContractState, token: ContractAddress) -> bool;
-
-    fn getFeesAccumulated(self: @TContractState, token: ContractAddress) -> u256;
-
     fn getUserMarkets(self: @TContractState, user: ContractAddress) -> Array<Market>;
 
     fn checkForApproval(self: @TContractState, token: ContractAddress, amount: u256) -> bool;
+
+    fn getOwner(self: @TContractState) -> ContractAddress;
+
+    fn getTreasuryWallet(self: @TContractState) -> ContractAddress;
+
+    fn setTreasuryWallet(ref self: TContractState, wallet: ContractAddress);
 // functions to define if we implement pools for the betting platform.
 
 // fn createTokenPool(ref self: TContractState, tokenAddress: ContractAddress, initialLiquidity: u256) ->  ContractAddress;
@@ -108,11 +110,11 @@ pub mod MarketFactory {
         // markets: Array<Market>
         markets: LegacyMap::<u256, Market>,
         idx: u256,
-        treasury: LegacyMap::<ContractAddress, u256>, // for the contract to hold the money
         userPortfolio: LegacyMap::<
             (ContractAddress, Outcome), UserPosition
         >, // read outcome with market id and user name, then read portfolio using contract address and outcome.
         owner: ContractAddress,
+        treasuryWallet: ContractAddress,
     }
 
 
@@ -260,15 +262,18 @@ pub mod MarketFactory {
                 // let _approval = dispatcher.approve(get_contract_address(), amount);
                 let txn: bool = dispatcher
                     .transfer_from(get_caller_address(), get_contract_address(), amount);
-                let treasuryBalance = self.treasury.read(market.betToken);
-                self
-                    .treasury
-                    .write(market.betToken, treasuryBalance + (amount * PLATFORM_FEE * one / 100));
+                dispatcher
+                    .transfer_from(
+                        get_contract_address(),
+                        self.treasuryWallet.read(),
+                        amount * PLATFORM_FEE * one / 100
+                    );
                 outcome.boughtShares = outcome.boughtShares
-                    + (amount - amount * PLATFORM_FEE / 100) * one;
+                    + (amount * one - amount * one * PLATFORM_FEE / 100);
                 let marketClone = self.markets.read(marketId);
                 let moneyInPool = marketClone.moneyInPool
-                    + amount * one - amount * PLATFORM_FEE * one / 100;
+                    + amount * one
+                    - amount * PLATFORM_FEE * one / 100;
                 let newMarket = Market {
                     outcomes: (outcome, outcome2), moneyInPool: moneyInPool, ..marketClone
                 };
@@ -303,15 +308,18 @@ pub mod MarketFactory {
                 // let _approval = dispatcher.approve(get_contract_address(), amount);
                 let txn: bool = dispatcher
                     .transfer_from(get_caller_address(), get_contract_address(), amount);
-                let treasuryBalance = self.treasury.read(market.betToken);
-                self
-                    .treasury
-                    .write(market.betToken, treasuryBalance + (amount * PLATFORM_FEE * one / 100));
+                dispatcher
+                    .transfer_from(
+                        get_contract_address(),
+                        self.treasuryWallet.read(),
+                        amount * PLATFORM_FEE * one / 100
+                    );
                 outcome.boughtShares = outcome.boughtShares
-                    + amount * one - amount * PLATFORM_FEE / 100 * one;
+                    + (amount * one - amount * one * PLATFORM_FEE / 100);
                 let marketClone = self.markets.read(marketId);
                 let moneyInPool = marketClone.moneyInPool
-                    + amount * one - amount * PLATFORM_FEE * one / 100;
+                    + amount * one
+                    - amount * PLATFORM_FEE * one / 100;
                 let marketNew = Market {
                     outcomes: (outcome1, outcome), moneyInPool: moneyInPool, ..marketClone
                 };
@@ -344,6 +352,11 @@ pub mod MarketFactory {
             }
         }
 
+        fn getTreasuryWallet(self: @ContractState) -> ContractAddress {
+            assert!(get_caller_address() == self.owner.read(), "Only owner can read.");
+            return self.treasuryWallet.read();
+        }
+
         fn claimWinnings(ref self: ContractState, marketId: u256, receiver: ContractAddress) {
             assert!(marketId <= self.idx.read(), "Market does not exist");
             let market = self.markets.read(marketId);
@@ -371,8 +384,9 @@ pub mod MarketFactory {
                 );
         }
 
-        fn getFeesAccumulated(self: @ContractState, token: ContractAddress) -> u256 {
-            self.treasury.read(token)
+        fn setTreasuryWallet(ref self: ContractState, wallet: ContractAddress) {
+            assert(get_caller_address() == self.owner.read(), 'Only owner can set.');
+            self.treasuryWallet.write(wallet);
         }
 
         fn settleMarket(ref self: ContractState, marketId: u256, winningOutcome: u8) {
@@ -403,6 +417,10 @@ pub mod MarketFactory {
             markets
         }
 
+        fn getOwner(self: @ContractState) -> ContractAddress {
+            return self.owner.read();
+        }
+
         fn getContractOwner(self: @ContractState) -> ContractAddress {
             return self.owner.read();
         }
@@ -429,16 +447,6 @@ pub mod MarketFactory {
             let totalShares = outcome1.boughtShares + outcome2.boughtShares;
             let outcomeShares = outcome.boughtShares;
             return outcomeShares / totalShares;
-        }
-
-
-        fn withdrawFromTreasury(ref self: ContractState, token: ContractAddress) -> bool {
-            let treasuryBalance = self.treasury.read(token);
-            let dispatcher = IERC20Dispatcher { contract_address: token };
-            let tx = dispatcher.transfer(self.owner.read(), treasuryBalance / one);
-            self.emit(WithdrawnFromTreasury { token: token, amount: treasuryBalance });
-            self.treasury.write(token, 0);
-            tx
         }
     }
 
