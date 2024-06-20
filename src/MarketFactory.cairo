@@ -1,4 +1,5 @@
-use starknet::ContractAddress;
+use starknet::{ContractAddress,ClassHash};
+// after settlement, send to inactive market in storage.
 
 #[derive(Drop, Serde, starknet::Store)]
 pub struct Market {
@@ -9,7 +10,7 @@ pub struct Market {
     image: ByteArray,
     isSettled: bool,
     isActive: bool,
-    deadline: felt252,
+    deadline: u256,
     betToken: ContractAddress,
     winningOutcome: Option<Outcome>,
     moneyInPool: u256,
@@ -38,7 +39,7 @@ pub trait IMarketFactory<TContractState> {
         betToken: ContractAddress,
         category: felt252,
         image: ByteArray,
-        deadline: felt252,
+        deadline: u256,
     );
 
     fn getMarketCount(self: @TContractState) -> u256;
@@ -57,10 +58,6 @@ pub trait IMarketFactory<TContractState> {
 
     fn getMarketByCategory(self: @TContractState, category: felt252) -> Array<Market>;
 
-    fn getContractOwner(self: @TContractState) -> ContractAddress;
-
-    fn calcProbabilty(self: @TContractState, marketId: u256, outcome: Outcome) -> u256;
-
     fn getUserMarkets(self: @TContractState, user: ContractAddress) -> Array<Market>;
 
     fn checkForApproval(self: @TContractState, token: ContractAddress, amount: u256) -> bool;
@@ -70,6 +67,8 @@ pub trait IMarketFactory<TContractState> {
     fn getTreasuryWallet(self: @TContractState) -> ContractAddress;
 
     fn setTreasuryWallet(ref self: TContractState, wallet: ContractAddress);
+
+    fn upgrade(ref self: TContractState, new_class_hash: ClassHash);
 // functions to define if we implement pools for the betting platform.
 
 // fn createTokenPool(ref self: TContractState, tokenAddress: ContractAddress, initialLiquidity: u256) ->  ContractAddress;
@@ -97,9 +96,10 @@ pub mod MarketFactory {
     use core::option::OptionTrait;
     use core::array::ArrayTrait;
     use super::{Market, Outcome, UserPosition};
-    use starknet::{ContractAddress, get_caller_address, get_contract_address};
+    use starknet::{ContractAddress,ClassHash, get_caller_address, get_contract_address};
     use core::num::traits::zero::Zero;
     use openzeppelin::token::erc20::interface::IERC20Dispatcher;
+    use starknet::SyscallResultTrait; // remove later
 
     const one: u256 = 1_000_000_000_000_000_000;
     const MAX_ITERATIONS: u16 = 25;
@@ -127,6 +127,11 @@ pub mod MarketFactory {
         MarketToggled: MarketToggled,
         WinningsClaimed: WinningsClaimed,
         WithdrawnFromTreasury: WithdrawnFromTreasury,
+        Upgraded : Upgraded,
+    }
+    #[derive(Drop, PartialEq, starknet::Event)]
+    pub struct Upgraded {
+        pub class_hash: ClassHash
     }
     #[derive(Drop, starknet::Event)]
     struct MarketCreated {
@@ -161,8 +166,8 @@ pub mod MarketFactory {
     }
 
     #[constructor]
-    fn constructor(ref self: ContractState) {
-        self.owner.write(get_caller_address());
+    fn constructor(ref self: ContractState, owner: ContractAddress) {
+        self.owner.write(owner);
     }
 
 
@@ -186,9 +191,10 @@ pub mod MarketFactory {
             betToken: ContractAddress,
             category: felt252,
             image: ByteArray,
-            deadline: felt252,
+            deadline: u256,
         ) {
             // the entire money stays in the contract, treasury keeps count of how much the platform is making as revenue, the rest amount in the market 
+            assert(get_caller_address() == self.owner.read(), 'Only owner can create.');
             let outcomes = createShareTokens(outcomes);
             let market = Market {
                 name,
@@ -252,7 +258,7 @@ pub mod MarketFactory {
             ref self: ContractState, marketId: u256, tokenToMint: u8, amount: u256
         ) -> bool {
             let market = self.markets.read(marketId);
-            assert!(market.isActive == true, "Market is not active.");
+            assert(market.isActive == true, 'Market is not active.');
             let token = self.userBet.read((get_caller_address(), marketId));
             let (outcome1, outcome2) = market.outcomes;
             assert(token.boughtShares.is_zero(), '');
@@ -353,20 +359,21 @@ pub mod MarketFactory {
         }
 
         fn getTreasuryWallet(self: @ContractState) -> ContractAddress {
-            assert!(get_caller_address() == self.owner.read(), "Only owner can read.");
+            assert(get_caller_address() == self.owner.read(), 'Only owner can read.');
             return self.treasuryWallet.read();
         }
 
         fn claimWinnings(ref self: ContractState, marketId: u256, receiver: ContractAddress) {
-            assert!(marketId <= self.idx.read(), "Market does not exist");
+            assert(marketId <= self.idx.read(), 'Market does not exist');
             let market = self.markets.read(marketId);
-            assert!(market.isSettled == true, "Market isn't settled.");
+            // assert(market.isSettled == true, 'Market isn't settled.');
+            assert(market.isSettled == true, 'Market not settled');
             let userOutcome: Outcome = self.userBet.read((receiver, marketId));
             let userPosition: UserPosition = self.userPortfolio.read((receiver, userOutcome));
-            assert!(userPosition.hasClaimed == false, "User has already claimed winnings.");
+            assert(userPosition.hasClaimed == false, 'User has claimed winnings.');
             let mut winnings = 0;
             let winningOutcome = market.winningOutcome.unwrap();
-            assert!(userOutcome == winningOutcome, "User didn't win!");
+            assert(userOutcome == winningOutcome, 'User did not win!');
             winnings = userPosition.amount * market.moneyInPool / userOutcome.boughtShares;
             let dispatcher = IERC20Dispatcher { contract_address: market.betToken };
             dispatcher.transfer(receiver, winnings);
@@ -421,10 +428,6 @@ pub mod MarketFactory {
             return self.owner.read();
         }
 
-        fn getContractOwner(self: @ContractState) -> ContractAddress {
-            return self.owner.read();
-        }
-
         fn getMarketByCategory(self: @ContractState, category: felt252) -> Array<Market> {
             let mut markets: Array<Market> = ArrayTrait::new();
             let mut i: u256 = 0;
@@ -441,12 +444,9 @@ pub mod MarketFactory {
             markets
         }
 
-        fn calcProbabilty(self: @ContractState, marketId: u256, outcome: Outcome) -> u256 {
-            let market = self.markets.read(marketId);
-            let (outcome1, outcome2) = market.outcomes;
-            let totalShares = outcome1.boughtShares + outcome2.boughtShares;
-            let outcomeShares = outcome.boughtShares;
-            return outcomeShares / totalShares;
+        fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+            starknet::syscalls::replace_class_syscall(new_class_hash).unwrap_syscall();
+            self.emit(Upgraded { class_hash: new_class_hash });
         }
     }
 
@@ -470,5 +470,13 @@ pub mod MarketFactory {
             odds
         // }
         }
+    }
+
+    fn calcProbabilty(self: @ContractState, marketId: u256, outcome: Outcome) -> u256 {
+        let market = self.markets.read(marketId);
+        let (outcome1, outcome2) = market.outcomes;
+        let totalShares = outcome1.boughtShares + outcome2.boughtShares;
+        let outcomeShares = outcome.boughtShares;
+        return outcomeShares / totalShares;
     }
 }
