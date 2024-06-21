@@ -71,7 +71,11 @@ pub trait IMarketFactory<TContractState> {
 
     fn upgrade(ref self: TContractState, new_class_hash: ClassHash);
 
-    fn getOutcomeAndBet(self: @TContractState, user: ContractAddress, marketId: u256) -> (Outcome, UserPosition);
+    fn getOutcomeAndBet(
+        self: @TContractState, user: ContractAddress, marketId: u256
+    ) -> (Outcome, UserPosition);
+
+    fn getUserTotalClaimable(self: @TContractState, user: ContractAddress) -> u256;
 }
 
 pub trait IMarketFactoryImpl<TContractState> {
@@ -235,7 +239,7 @@ pub mod MarketFactory {
                 let market = self.markets.read(i);
                 let (outcome1, outcome2) = market.outcomes;
                 let userOutcome = self.userBet.read((user, i));
-                if userOutcome == outcome1 || userOutcome == outcome2  {
+                if userOutcome == outcome1 || userOutcome == outcome2 {
                     markets.append(market);
                     outcomes.append(userOutcome);
                     bets.append(self.userPortfolio.read((user, userOutcome)));
@@ -245,10 +249,38 @@ pub mod MarketFactory {
             markets
         }
 
-        fn getOutcomeAndBet(self: @ContractState, user: ContractAddress, marketId: u256) -> (Outcome, UserPosition) {
+        fn getOutcomeAndBet(
+            self: @ContractState, user: ContractAddress, marketId: u256
+        ) -> (Outcome, UserPosition) {
             let outcome = self.userBet.read((user, marketId));
             let bet = self.userPortfolio.read((user, outcome));
             return (outcome, bet);
+        }
+
+        fn getUserTotalClaimable(self: @ContractState, user: ContractAddress) -> u256 {
+            let mut total: u256 = 0;
+            let mut i: u256 = 1;
+            loop {
+                if i > self.idx.read() {
+                    break;
+                }
+                let market = self.markets.read(i);
+                let userOutcome = self.userBet.read((user, i));
+                if market.isSettled == false {
+                    i += 1;
+                    continue;
+                }
+                if userOutcome == market.winningOutcome.unwrap() {
+                    let userPosition = self.userPortfolio.read((user, userOutcome));
+                    if userPosition.hasClaimed == false {
+                        total += userPosition.amount
+                            * market.moneyInPool
+                            / userOutcome.boughtShares;
+                    }
+                }
+                i += 1;
+            };
+            total
         }
 
         // creates a position in a market for a user
@@ -264,7 +296,7 @@ pub mod MarketFactory {
             if tokenToMint == 0 {
                 let mut outcome = outcome1;
                 let txn: bool = dispatcher
-                    .transfer_from(get_caller_address(),get_contract_address(), amount);
+                    .transfer_from(get_caller_address(), get_contract_address(), amount);
                 dispatcher.transfer(self.treasuryWallet.read(), amount * PLATFORM_FEE / 100);
                 outcome.boughtShares = outcome.boughtShares
                     + (amount - amount * PLATFORM_FEE / 100);
@@ -435,23 +467,21 @@ pub mod MarketFactory {
             let outcomeShares = outcome.boughtShares;
             return outcomeShares / totalShares;
         }
+    // fn calcOdds(ref self: ContractState, marketId: u256) -> Array<u256> {
+    //     let market = self.markets.read(marketId);
+    //     let (outcome1, outcome2) = market.outcomes;
+    //     let mut odds: Array<u256> = ArrayTrait::new();
+    //     if (outcome1.boughtShares == 0) {
 
-        // fn calcOdds(ref self: ContractState, marketId: u256) -> Array<u256> {
-        //     let market = self.markets.read(marketId);
-        //     let (outcome1, outcome2) = market.outcomes;
-        //     let mut odds: Array<u256> = ArrayTrait::new();
-        //     if (outcome1.boughtShares == 0) {
-
-        //     }
-        //     let oddOutcome1 = (outcome1.boughtShares + outcome2.boughtShares)
-        //         / outcome1.boughtShares;
-        //     let oddOutcome2 = (outcome1.boughtShares + outcome2.boughtShares)
-        //         / outcome2.boughtShares;
-        //     odds.append(oddOutcome1);
-        //     odds.append(oddOutcome2);
-        //     odds
-        // // }
-        // }
+    //     }
+    //     let oddOutcome1 = (outcome1.boughtShares + outcome2.boughtShares)
+    //         / outcome1.boughtShares;
+    //     let oddOutcome2 = (outcome1.boughtShares + outcome2.boughtShares)
+    //         / outcome2.boughtShares;
+    //     odds.append(oddOutcome1);
+    //     odds.append(oddOutcome2);
+    //     odds
+    // // }
+    // }
     }
-
 }
