@@ -4,6 +4,7 @@ use starknet::{ContractAddress,ClassHash};
 #[derive(Drop, Serde, starknet::Store)]
 pub struct Market {
     name: ByteArray,
+    marketId: u256,
     description: ByteArray,
     outcomes: (Outcome, Outcome),
     category: felt252,
@@ -207,7 +208,8 @@ pub mod MarketFactory {
                 moneyInPool: 0,
                 category,
                 image,
-                deadline
+                deadline,
+                marketId: self.idx.read() + 1,
             };
             self.idx.write(self.idx.read() + 1); // 0 -> 1
             self.markets.write(self.idx.read(), market); // write market to storage
@@ -261,16 +263,14 @@ pub mod MarketFactory {
             assert(market.isActive == true, 'Market is not active.');
             let token = self.userBet.read((get_caller_address(), marketId));
             let (outcome1, outcome2) = market.outcomes;
-            assert(token.boughtShares.is_zero(), '');
+            assert(token.boughtShares.is_zero(), 'User already has shares');
             let dispatcher = IERC20Dispatcher { contract_address: market.betToken };
             if tokenToMint == 0 {
                 let mut outcome = outcome1;
-                // let _approval = dispatcher.approve(get_contract_address(), amount);
                 let txn: bool = dispatcher
                     .transfer_from(get_caller_address(), get_contract_address(), amount);
                 dispatcher
-                    .transfer_from(
-                        get_contract_address(),
+                    .transfer(
                         self.treasuryWallet.read(),
                         amount * PLATFORM_FEE * one / 100
                     );
@@ -413,9 +413,9 @@ pub mod MarketFactory {
 
         fn getAllMarkets(self: @ContractState) -> Array<Market> {
             let mut markets: Array<Market> = ArrayTrait::new();
-            let mut i: u256 = 0;
+            let mut i: u256 = 1;
             loop {
-                if i == self.idx.read() {
+                if i > self.idx.read() {
                     break;
                 }
                 markets.append(self.markets.read(i));
@@ -445,6 +445,7 @@ pub mod MarketFactory {
         }
 
         fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
+            assert(get_caller_address() == self.owner.read(), 'Only owner can upgrade.');
             starknet::syscalls::replace_class_syscall(new_class_hash).unwrap_syscall();
             self.emit(Upgraded { class_hash: new_class_hash });
         }
