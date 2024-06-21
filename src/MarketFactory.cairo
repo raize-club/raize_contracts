@@ -70,22 +70,11 @@ pub trait IMarketFactory<TContractState> {
     fn setTreasuryWallet(ref self: TContractState, wallet: ContractAddress);
 
     fn upgrade(ref self: TContractState, new_class_hash: ClassHash);
-// functions to define if we implement pools for the betting platform.
 
-// fn createTokenPool(ref self: TContractState, tokenAddress: ContractAddress, initialLiquidity: u256) ->  ContractAddress;
-
-// fn addLiquidity(ref self: TContractState, poolAddress: ContractAddress, amount: u256) -> bool;
-
-// fn removeLiquidity(ref self: TContractState, poolAddress: ContractAddress, amount: u256) -> bool;
+    fn getOutcomeAndBet(self: @TContractState, user: ContractAddress, marketId: u256) -> (Outcome, UserPosition);
 }
 
 pub trait IMarketFactoryImpl<TContractState> {
-    // fn calcOdds(ref self: TContractState, marketId: u256) -> Array<u256>;
-
-    // fn marginAdjustedOdds(
-    //     ref self: TContractState, marketId: u256, probabilities: @Array<u256>, margin: u256
-    // ) -> Array<u256>;
-
     fn isMarketResolved(self: @TContractState, marketId: u256) -> bool;
 
     fn calcProbabilty(self: @TContractState, marketId: u256, outcome: Outcome) -> u256;
@@ -102,7 +91,7 @@ pub mod MarketFactory {
     use starknet::{ContractAddress, ClassHash, get_caller_address, get_contract_address};
     use core::num::traits::zero::Zero;
     use openzeppelin::token::erc20::interface::IERC20Dispatcher;
-    use starknet::SyscallResultTrait; // remove later
+    use starknet::SyscallResultTrait;
 
     const one: u256 = 1_000_000_000_000_000_000;
     const MAX_ITERATIONS: u16 = 25;
@@ -236,9 +225,11 @@ pub mod MarketFactory {
 
         fn getUserMarkets(self: @ContractState, user: ContractAddress) -> Array<Market> {
             let mut markets: Array<Market> = ArrayTrait::new();
-            let mut i: u256 = 0;
+            let mut outcomes: Array<Outcome> = ArrayTrait::new();
+            let mut bets: Array<UserPosition> = ArrayTrait::new();
+            let mut i: u256 = 1;
             loop {
-                if i == self.idx.read() {
+                if i > self.idx.read() {
                     break;
                 }
                 let market = self.markets.read(i);
@@ -246,10 +237,18 @@ pub mod MarketFactory {
                 let userOutcome = self.userBet.read((user, i));
                 if userOutcome == outcome1 || userOutcome == outcome2  {
                     markets.append(market);
+                    outcomes.append(userOutcome);
+                    bets.append(self.userPortfolio.read((user, userOutcome)));
                 }
                 i += 1;
             };
             markets
+        }
+
+        fn getOutcomeAndBet(self: @ContractState, user: ContractAddress, marketId: u256) -> (Outcome, UserPosition) {
+            let outcome = self.userBet.read((user, marketId));
+            let bet = self.userPortfolio.read((user, outcome));
+            return (outcome, bet);
         }
 
         // creates a position in a market for a user
