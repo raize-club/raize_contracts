@@ -265,23 +265,16 @@ pub mod MarketFactory {
             if tokenToMint == 0 {
                 let mut outcome = outcome1;
                 let txn: bool = dispatcher
-                    .transfer(get_contract_address(), amount - amount * PLATFORM_FEE / 100);
-                dispatcher.transfer(self.treasuryWallet.read(), amount * PLATFORM_FEE / 100);
+                    .transfer_from(get_caller_address(),get_contract_address(), amount);
+                dispatcher.transfer_from(get_caller_address(), self.treasuryWallet.read(), amount * PLATFORM_FEE / 100);
                 outcome.boughtShares = outcome.boughtShares
-                    + (amount - amount * PLATFORM_FEE / 100);
+                    + (amount);
                 let marketClone = self.markets.read(marketId);
-                let moneyInPool = marketClone.moneyInPool + amount - amount * PLATFORM_FEE / 100;
+                let moneyInPool = marketClone.moneyInPool + amount;
                 let newMarket = Market {
                     outcomes: (outcome, outcome2), moneyInPool: moneyInPool, ..marketClone
                 };
                 self.markets.write(marketId, newMarket);
-                // let updatedOdds = self.calcOdds(marketId);
-                // let mut otherOutcome = outcome2;
-                // outcome.currentOdds = *updatedOdds.at(0);
-                // otherOutcome.currentOdds = *updatedOdds.at(1);
-                // let marketClone = self.markets.read(marketId);
-                // let oddsUpdatedMarket = Market { outcomes: (outcome, otherOutcome), ..marketClone };
-                // self.markets.write(marketId, oddsUpdatedMarket);
                 self.userBet.write((get_caller_address(), marketId), outcome);
                 self
                     .userPortfolio
@@ -303,23 +296,16 @@ pub mod MarketFactory {
             } else {
                 let mut outcome = outcome2;
                 let txn: bool = dispatcher
-                    .transfer(get_contract_address(), amount - amount * PLATFORM_FEE / 100);
+                    .transfer(get_contract_address(), amount);
                 dispatcher.transfer(self.treasuryWallet.read(), amount * PLATFORM_FEE / 100);
                 outcome.boughtShares = outcome.boughtShares
-                    + (amount - amount * PLATFORM_FEE / 100);
+                    + (amount);
                 let marketClone = self.markets.read(marketId);
-                let moneyInPool = marketClone.moneyInPool + amount - amount * PLATFORM_FEE / 100;
+                let moneyInPool = marketClone.moneyInPool + amount;
                 let marketNew = Market {
                     outcomes: (outcome1, outcome), moneyInPool: moneyInPool, ..marketClone
                 };
                 self.markets.write(marketId, marketNew);
-                // let updatedOdds = self.calcOdds(marketId);
-                // let mut otherOutcome = outcome1;
-                // outcome.currentOdds = *updatedOdds.at(1);
-                // otherOutcome.currentOdds = *updatedOdds.at(0);
-                // let marketClone = self.markets.read(marketId);
-                // let oddsUpdatedMarket = Market { outcomes: (outcome, otherOutcome), ..marketClone };
-                // self.markets.write(marketId, oddsUpdatedMarket);
                 self.userBet.write((get_caller_address(), marketId), outcome);
                 self
                     .userPortfolio
@@ -357,7 +343,6 @@ pub mod MarketFactory {
             let winningOutcome = market.winningOutcome.unwrap();
             assert(userOutcome == winningOutcome, 'User did not win!');
             winnings = userPosition.amount * market.moneyInPool / userOutcome.boughtShares;
-            println!("Winnings: {}", winnings);
             let dispatcher = IERC20Dispatcher { contract_address: market.betToken };
             dispatcher.transfer(receiver, winnings);
             self
@@ -383,6 +368,7 @@ pub mod MarketFactory {
             assert(get_caller_address() == self.owner.read(), 'Only owner can settle markets.');
             let mut market = self.markets.read(marketId);
             market.isSettled = true;
+            market.isActive = false;
             let (outcome1, outcome2) = market.outcomes;
             if winningOutcome == 0 {
                 market.winningOutcome = Option::Some(outcome1);
@@ -401,7 +387,9 @@ pub mod MarketFactory {
                 if i > self.idx.read() {
                     break;
                 }
-                markets.append(self.markets.read(i));
+                if self.markets.read(i).isActive == true {
+                    markets.append(self.markets.read(i));
+                }
                 i += 1;
             };
             markets

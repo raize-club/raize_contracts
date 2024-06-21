@@ -252,20 +252,26 @@ fn shouldLetClaimWinnings() {
     // }
     stop_cheat_caller_address(marketContract);
     start_cheat_caller_address(tokenAddress, contract_address_const::<1>());
-    tokenDispatcher.transfer(contract_address_const::<2>(), 100000  * PRECISION);
-    tokenDispatcher.transfer(marketContract, 100000  * PRECISION);
+    tokenDispatcher.transfer(contract_address_const::<2>(), 100000);
+    tokenDispatcher.transfer(marketContract, 100000);
     stop_cheat_caller_address(tokenAddress);
     start_cheat_caller_address(marketContract,contract_address_const::<2>());
     start_cheat_caller_address(tokenAddress,contract_address_const::<2>());
-    dispatcher.buyShares(1, 0, 100 * PRECISION);
+    dispatcher.buyShares(1, 0, 100);
     stop_cheat_caller_address(marketContract);
     start_cheat_caller_address(marketContract, contract_address_const::<1>());
     dispatcher.settleMarket(1, 0);
     stop_cheat_caller_address(marketContract);
     let balance = tokenDispatcher.balance_of(contract_address_const::<2>());
+
+
+    start_cheat_caller_address(marketContract, contract_address_const::<2>());
     dispatcher.claimWinnings(1, contract_address_const::<2>());
     let updatedBalance = tokenDispatcher.balance_of(contract_address_const::<2>());
-    print!("balance -> {} , updatedBalance -> {}", balance, updatedBalance);
+    print!("balance -> {}\n , updatedBalance -> {}\n", balance, updatedBalance);
+
+    let res = updatedBalance - balance;
+    print!("res -> {}\n", res);
     assert(updatedBalance - balance > 0, 'winnings not claimed!');
 }
 
