@@ -1,4 +1,4 @@
-use starknet::{ContractAddress,ClassHash};
+use starknet::{ContractAddress, ClassHash};
 // after settlement, send to inactive market in storage.
 
 #[derive(Drop, Serde, starknet::Store)]
@@ -20,7 +20,7 @@ pub struct Market {
 #[derive(Drop, Copy, Serde, starknet::Store, PartialEq, Eq, Hash)]
 pub struct Outcome {
     name: felt252,
-    currentOdds: u256,
+    // currentOdds: u256,
     boughtShares: u256,
 }
 
@@ -80,13 +80,15 @@ pub trait IMarketFactory<TContractState> {
 }
 
 pub trait IMarketFactoryImpl<TContractState> {
-    fn calcOdds(ref self: TContractState, marketId: u256) -> Array<u256>;
+    // fn calcOdds(ref self: TContractState, marketId: u256) -> Array<u256>;
 
     // fn marginAdjustedOdds(
     //     ref self: TContractState, marketId: u256, probabilities: @Array<u256>, margin: u256
     // ) -> Array<u256>;
 
     fn isMarketResolved(self: @TContractState, marketId: u256) -> bool;
+
+    fn calcProbabilty(self: @TContractState, marketId: u256, outcome: Outcome) -> u256;
 }
 
 #[starknet::contract]
@@ -97,7 +99,7 @@ pub mod MarketFactory {
     use core::option::OptionTrait;
     use core::array::ArrayTrait;
     use super::{Market, Outcome, UserPosition};
-    use starknet::{ContractAddress,ClassHash, get_caller_address, get_contract_address};
+    use starknet::{ContractAddress, ClassHash, get_caller_address, get_contract_address};
     use core::num::traits::zero::Zero;
     use openzeppelin::token::erc20::interface::IERC20Dispatcher;
     use starknet::SyscallResultTrait; // remove later
@@ -127,8 +129,7 @@ pub mod MarketFactory {
         MarketSettled: MarketSettled,
         MarketToggled: MarketToggled,
         WinningsClaimed: WinningsClaimed,
-        WithdrawnFromTreasury: WithdrawnFromTreasury,
-        Upgraded : Upgraded,
+        Upgraded: Upgraded,
     }
     #[derive(Drop, PartialEq, starknet::Event)]
     pub struct Upgraded {
@@ -160,11 +161,6 @@ pub mod MarketFactory {
         outcome: Outcome,
         amount: u256
     }
-    #[derive(Drop, starknet::Event)]
-    struct WithdrawnFromTreasury {
-        token: ContractAddress,
-        amount: u256
-    }
 
     #[constructor]
     fn constructor(ref self: ContractState, owner: ContractAddress) {
@@ -174,8 +170,8 @@ pub mod MarketFactory {
 
     fn createShareTokens(names: (felt252, felt252)) -> (Outcome, Outcome) {
         let (name1, name2) = names;
-        let mut token1 = Outcome { name: name1, boughtShares: one, currentOdds: 2 * one };
-        let mut token2 = Outcome { name: name2, boughtShares: one, currentOdds: 2 * one };
+        let mut token1 = Outcome { name: name1, boughtShares: 0 };
+        let mut token2 = Outcome { name: name2, boughtShares: 0 };
 
         let tokens = (token1, token2);
 
@@ -246,8 +242,9 @@ pub mod MarketFactory {
                     break;
                 }
                 let market = self.markets.read(i);
+                let (outcome1, outcome2) = market.outcomes;
                 let userOutcome = self.userBet.read((user, i));
-                if userOutcome.currentOdds != 0 {
+                if userOutcome == outcome1 || userOutcome == outcome2  {
                     markets.append(market);
                 }
                 i += 1;
@@ -268,29 +265,23 @@ pub mod MarketFactory {
             if tokenToMint == 0 {
                 let mut outcome = outcome1;
                 let txn: bool = dispatcher
-                    .transfer_from(get_caller_address(), get_contract_address(), amount);
-                dispatcher
-                    .transfer(
-                        self.treasuryWallet.read(),
-                        amount * PLATFORM_FEE * one / 100
-                    );
+                    .transfer(get_contract_address(), amount - amount * PLATFORM_FEE / 100);
+                dispatcher.transfer(self.treasuryWallet.read(), amount * PLATFORM_FEE / 100);
                 outcome.boughtShares = outcome.boughtShares
-                    + (amount * one - amount * one * PLATFORM_FEE / 100);
+                    + (amount - amount * PLATFORM_FEE / 100);
                 let marketClone = self.markets.read(marketId);
-                let moneyInPool = marketClone.moneyInPool
-                    + amount * one
-                    - amount * PLATFORM_FEE * one / 100;
+                let moneyInPool = marketClone.moneyInPool + amount - amount * PLATFORM_FEE / 100;
                 let newMarket = Market {
                     outcomes: (outcome, outcome2), moneyInPool: moneyInPool, ..marketClone
                 };
                 self.markets.write(marketId, newMarket);
-                let updatedOdds = self.calcOdds(marketId);
-                let mut otherOutcome = outcome2;
-                outcome.currentOdds = *updatedOdds.at(0);
-                otherOutcome.currentOdds = *updatedOdds.at(1);
-                let marketClone = self.markets.read(marketId);
-                let oddsUpdatedMarket = Market { outcomes: (outcome, otherOutcome), ..marketClone };
-                self.markets.write(marketId, oddsUpdatedMarket);
+                // let updatedOdds = self.calcOdds(marketId);
+                // let mut otherOutcome = outcome2;
+                // outcome.currentOdds = *updatedOdds.at(0);
+                // otherOutcome.currentOdds = *updatedOdds.at(1);
+                // let marketClone = self.markets.read(marketId);
+                // let oddsUpdatedMarket = Market { outcomes: (outcome, otherOutcome), ..marketClone };
+                // self.markets.write(marketId, oddsUpdatedMarket);
                 self.userBet.write((get_caller_address(), marketId), outcome);
                 self
                     .userPortfolio
@@ -311,32 +302,24 @@ pub mod MarketFactory {
                 txn
             } else {
                 let mut outcome = outcome2;
-                // let _approval = dispatcher.approve(get_contract_address(), amount);
                 let txn: bool = dispatcher
-                    .transfer_from(get_caller_address(), get_contract_address(), amount);
-                dispatcher
-                    .transfer_from(
-                        get_contract_address(),
-                        self.treasuryWallet.read(),
-                        amount * PLATFORM_FEE * one / 100
-                    );
+                    .transfer(get_contract_address(), amount - amount * PLATFORM_FEE / 100);
+                dispatcher.transfer(self.treasuryWallet.read(), amount * PLATFORM_FEE / 100);
                 outcome.boughtShares = outcome.boughtShares
-                    + (amount * one - amount * one * PLATFORM_FEE / 100);
+                    + (amount - amount * PLATFORM_FEE / 100);
                 let marketClone = self.markets.read(marketId);
-                let moneyInPool = marketClone.moneyInPool
-                    + amount * one
-                    - amount * PLATFORM_FEE * one / 100;
+                let moneyInPool = marketClone.moneyInPool + amount - amount * PLATFORM_FEE / 100;
                 let marketNew = Market {
                     outcomes: (outcome1, outcome), moneyInPool: moneyInPool, ..marketClone
                 };
                 self.markets.write(marketId, marketNew);
-                let updatedOdds = self.calcOdds(marketId);
-                let mut otherOutcome = outcome1;
-                outcome.currentOdds = *updatedOdds.at(1);
-                otherOutcome.currentOdds = *updatedOdds.at(0);
-                let marketClone = self.markets.read(marketId);
-                let oddsUpdatedMarket = Market { outcomes: (outcome, otherOutcome), ..marketClone };
-                self.markets.write(marketId, oddsUpdatedMarket);
+                // let updatedOdds = self.calcOdds(marketId);
+                // let mut otherOutcome = outcome1;
+                // outcome.currentOdds = *updatedOdds.at(1);
+                // otherOutcome.currentOdds = *updatedOdds.at(0);
+                // let marketClone = self.markets.read(marketId);
+                // let oddsUpdatedMarket = Market { outcomes: (outcome, otherOutcome), ..marketClone };
+                // self.markets.write(marketId, oddsUpdatedMarket);
                 self.userBet.write((get_caller_address(), marketId), outcome);
                 self
                     .userPortfolio
@@ -366,7 +349,6 @@ pub mod MarketFactory {
         fn claimWinnings(ref self: ContractState, marketId: u256, receiver: ContractAddress) {
             assert(marketId <= self.idx.read(), 'Market does not exist');
             let market = self.markets.read(marketId);
-            // assert(market.isSettled == true, 'Market isn't settled.');
             assert(market.isSettled == true, 'Market not settled');
             let userOutcome: Outcome = self.userBet.read((receiver, marketId));
             let userPosition: UserPosition = self.userPortfolio.read((receiver, userOutcome));
@@ -375,6 +357,7 @@ pub mod MarketFactory {
             let winningOutcome = market.winningOutcome.unwrap();
             assert(userOutcome == winningOutcome, 'User did not win!');
             winnings = userPosition.amount * market.moneyInPool / userOutcome.boughtShares;
+            println!("Winnings: {}", winnings);
             let dispatcher = IERC20Dispatcher { contract_address: market.betToken };
             dispatcher.transfer(receiver, winnings);
             self
@@ -458,26 +441,30 @@ pub mod MarketFactory {
             return market.isSettled;
         }
 
-        fn calcOdds(ref self: ContractState, marketId: u256) -> Array<u256> {
+        fn calcProbabilty(self: @ContractState, marketId: u256, outcome: Outcome) -> u256 {
             let market = self.markets.read(marketId);
             let (outcome1, outcome2) = market.outcomes;
-            let mut odds: Array<u256> = ArrayTrait::new();
-            let oddOutcome1 = (outcome1.boughtShares + outcome2.boughtShares)
-                / outcome1.boughtShares;
-            let oddOutcome2 = (outcome1.boughtShares + outcome2.boughtShares)
-                / outcome2.boughtShares;
-            odds.append(oddOutcome1);
-            odds.append(oddOutcome2);
-            odds
-        // }
+            let totalShares = outcome1.boughtShares + outcome2.boughtShares;
+            let outcomeShares = outcome.boughtShares;
+            return outcomeShares / totalShares;
         }
+
+        // fn calcOdds(ref self: ContractState, marketId: u256) -> Array<u256> {
+        //     let market = self.markets.read(marketId);
+        //     let (outcome1, outcome2) = market.outcomes;
+        //     let mut odds: Array<u256> = ArrayTrait::new();
+        //     if (outcome1.boughtShares == 0) {
+
+        //     }
+        //     let oddOutcome1 = (outcome1.boughtShares + outcome2.boughtShares)
+        //         / outcome1.boughtShares;
+        //     let oddOutcome2 = (outcome1.boughtShares + outcome2.boughtShares)
+        //         / outcome2.boughtShares;
+        //     odds.append(oddOutcome1);
+        //     odds.append(oddOutcome2);
+        //     odds
+        // // }
+        // }
     }
 
-    fn calcProbabilty(self: @ContractState, marketId: u256, outcome: Outcome) -> u256 {
-        let market = self.markets.read(marketId);
-        let (outcome1, outcome2) = market.outcomes;
-        let totalShares = outcome1.boughtShares + outcome2.boughtShares;
-        let outcomeShares = outcome.boughtShares;
-        return outcomeShares / totalShares;
-    }
 }

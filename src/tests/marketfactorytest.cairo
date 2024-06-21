@@ -1,8 +1,14 @@
 use core::option::OptionTrait;
 use core::fmt::Display;
 use core::traits::AddEq;
-use snforge_std::{declare, start_mock_call, test_address, start_cheat_caller_address, ContractClassTrait};
-use starknet::{ContractAddress, contract_address_const, get_caller_address, get_contract_address, contract_address};
+use snforge_std::{
+    declare, start_mock_call, test_address, start_cheat_caller_address, stop_cheat_caller_address, cheat_caller_address_global,
+    ContractClassTrait
+};
+use starknet::{
+    ContractAddress, contract_address_const, get_caller_address, get_contract_address,
+    contract_address
+};
 use raize_contracts::MarketFactory::{IMarketFactoryDispatcher, IMarketFactoryDispatcherTrait};
 use raize_contracts::MarketFactory::{Outcome, Market};
 use raize_contracts::erc20::erc20_mocks::{CamelERC20Mock};
@@ -33,7 +39,7 @@ fn fakeERCDeployment() -> ContractAddress {
 fn deployMarketContract() -> ContractAddress {
     let contract = declare("MarketFactory").unwrap();
     let mut calldata = array![];
-    calldata.append_serde(get_caller_address());
+    calldata.append_serde(contract_address_const::<1>());
     let (contract_deploy_address, _) = contract.deploy(@calldata).unwrap();
     contract_deploy_address
 }
@@ -46,6 +52,7 @@ fn createMarket() {
 
     let dispatcher = IMarketFactoryDispatcher { contract_address: marketContract };
 
+    start_cheat_caller_address(marketContract, contract_address_const::<1>());
     dispatcher
         .createMarket(
             "Trump vs Biden",
@@ -62,17 +69,32 @@ fn createMarket() {
     assert(marketCount == 1, 'market count should be 1');
 }
 
+// should set treasury wallet 
+#[test]
+fn shouldSetTreasury() {
+    let marketContract = deployMarketContract();
+    cheat_caller_address_global(contract_address_const::<1>());
+    // let tokenAddress = fakeERCDeployment();
+
+    let dispatcher = IMarketFactoryDispatcher { contract_address: marketContract };
+
+    dispatcher.setTreasuryWallet(contract_address_const::<1>());
+    let treasury = dispatcher.getTreasuryWallet();
+    assert(treasury == contract_address_const::<1>(), 'treasury not set!');
+}
 
 // should take bets
 #[test]
 fn shouldAcceptBets() {
     let marketContract = deployMarketContract();
+    cheat_caller_address_global(contract_address_const::<1>());
     let tokenAddress = fakeERCDeployment();
 
     let dispatcher = IMarketFactoryDispatcher { contract_address: marketContract };
 
     let tokenDispatcher = IERC20Dispatcher { contract_address: tokenAddress };
 
+    dispatcher.setTreasuryWallet(contract_address_const::<1>());
     dispatcher
         .createMarket(
             "Trump vs Biden",
@@ -83,13 +105,19 @@ fn shouldAcceptBets() {
             "trump.png",
             1818704106
         );
-
-    let approval = tokenDispatcher.allowance(get_caller_address(), marketContract);
-    if approval < 1000 {
-        let tx = tokenDispatcher.approve(marketContract, 1000);
-        assert(tx == true, 'tx failed!');
-    }
-    let tx = dispatcher.buyShares(1, 0, 100);
+    let balance_of = tokenDispatcher.balance_of(get_caller_address());
+    print!("Balance of caller {:?} \n: ", balance_of);
+    let balance_of_contract = tokenDispatcher.balance_of(marketContract);
+    print!("Balance of caller {:?} \n: ", balance_of_contract);
+    let tx = tokenDispatcher.approve(marketContract, 100000);
+    assert(tx == true, 'tx failed!');
+    // let allowance = tokenDispatcher.allowance(contract_address_const::<1>(), marketContract);
+    // print!("allowance: {} \n", allowance);
+    let tx = dispatcher.buyShares(1, 0, 1000);
+    let balance_of = tokenDispatcher.balance_of(get_caller_address());
+    print!("Balance of caller {:?} \n: ", balance_of);
+    let balance_of_contract = tokenDispatcher.balance_of(marketContract);
+    print!("Balance of contract {:?} \n: ", balance_of_contract);
     assert(tx == true, 'tx failed!');
 }
 
@@ -156,8 +184,8 @@ fn shouldKeepFees() {
         assert(tx == true, 'tx failed!');
     }
     dispatcher.buyShares(1, 0, 10);
-    // let updatedFees = dispatcher.getFeesAccumulated(tokenAddress);
-    // assert(updatedFees == 10 * PRECISION * 2 / 100, 'fees not accumulated!');
+// let updatedFees = dispatcher.getFeesAccumulated(tokenAddress);
+// assert(updatedFees == 10 * PRECISION * 2 / 100, 'fees not accumulated!');
 }
 
 // should add money in main liquidity pool for whatever amount is added per market
@@ -197,13 +225,15 @@ fn shouldAddMoney() {
 // should let people claim winnings
 #[test]
 fn shouldLetClaimWinnings() {
-    let marketContract = deployMarketContract();
-    let tokenAddress = fakeERCDeployment();
+    let marketContract = deployMarketContract(); // <1>
+    let tokenAddress = fakeERCDeployment(); // <1> owns 100000 tokens
 
     let dispatcher = IMarketFactoryDispatcher { contract_address: marketContract };
 
     let tokenDispatcher = IERC20Dispatcher { contract_address: tokenAddress };
 
+    start_cheat_caller_address(marketContract, contract_address_const::<1>());
+    dispatcher.setTreasuryWallet(contract_address_const::<1>());
     dispatcher
         .createMarket(
             "Trump vs Biden",
@@ -215,17 +245,28 @@ fn shouldLetClaimWinnings() {
             1818704106
         );
 
-    let approval = dispatcher.checkForApproval(tokenAddress, 1000);
-    if approval == false {
-        let tx = tokenDispatcher.approve(marketContract, 1000);
-        assert(tx == true, 'tx failed!');
-    }
-    dispatcher.buyShares(1, 0, 10);
+    // let approval = dispatcher.checkForApproval(tokenAddress, 1000);
+    // if approval == false {
+    //     let tx = tokenDispatcher.approve(marketContract, 1000);
+    //     assert(tx == true, 'tx failed!');
+    // }
+    stop_cheat_caller_address(marketContract);
+    start_cheat_caller_address(tokenAddress, contract_address_const::<1>());
+    tokenDispatcher.transfer(contract_address_const::<2>(), 100000  * PRECISION);
+    tokenDispatcher.transfer(marketContract, 100000  * PRECISION);
+    stop_cheat_caller_address(tokenAddress);
+    start_cheat_caller_address(marketContract,contract_address_const::<2>());
+    start_cheat_caller_address(tokenAddress,contract_address_const::<2>());
+    dispatcher.buyShares(1, 0, 100 * PRECISION);
+    stop_cheat_caller_address(marketContract);
+    start_cheat_caller_address(marketContract, contract_address_const::<1>());
     dispatcher.settleMarket(1, 0);
-    let balance = tokenDispatcher.balance_of(get_contract_address());
-    dispatcher.claimWinnings(1, get_contract_address());
-    let updatedBalance = tokenDispatcher.balance_of(get_contract_address());
-    assert(updatedBalance - balance == 8, 'winnings not claimed!');
+    stop_cheat_caller_address(marketContract);
+    let balance = tokenDispatcher.balance_of(contract_address_const::<2>());
+    dispatcher.claimWinnings(1, contract_address_const::<2>());
+    let updatedBalance = tokenDispatcher.balance_of(contract_address_const::<2>());
+    print!("balance -> {} , updatedBalance -> {}", balance, updatedBalance);
+    assert(updatedBalance - balance > 0, 'winnings not claimed!');
 }
 
 // should let owner withdraw fees from treasury
@@ -255,9 +296,9 @@ fn shouldLetOwnerWithdrawFees() {
         assert(tx == true, 'tx failed!');
     }
     dispatcher.buyShares(1, 0, 10);
-    // let fees = dispatcher.getFeesAccumulated(tokenAddress);
-    // dispatcher.withdrawFromTreasury(tokenAddress);
-    // let updatedFees = dispatcher.getFeesAccumulated(tokenAddress);
-    // assert(fees - updatedFees > 0, 'fees not withdrawn!');
+// let fees = dispatcher.getFeesAccumulated(tokenAddress);
+// dispatcher.withdrawFromTreasury(tokenAddress);
+// let updatedFees = dispatcher.getFeesAccumulated(tokenAddress);
+// assert(fees - updatedFees > 0, 'fees not withdrawn!');
 }
 

@@ -1,7 +1,8 @@
 #[starknet::contract]
 pub mod CamelERC20Mock {
-    use starknet::{ContractAddress, get_caller_address, get_contract_address};
+    use starknet::{ContractAddress, get_caller_address, get_contract_address, contract_address_const};
     use openzeppelin::token::erc20::{ERC20Component, ERC20HooksEmptyImpl};
+    const PRECISION: u256 = 1_000_000_000_000_000_000;
 
     component!(path: ERC20Component, storage: erc20, event: ERC20Event);
 
@@ -31,8 +32,8 @@ pub mod CamelERC20Mock {
     #[constructor]
     fn constructor(ref self: ContractState) {
         self.erc20.initializer("RaizeToken", "RZT");
-        let recipient = get_caller_address();
-        self.erc20._mint(recipient, 100000);
+        let recipient = contract_address_const::<1>();
+        self.erc20._mint(recipient, 10000000 * PRECISION);
     }
 
     #[abi(per_item)]
