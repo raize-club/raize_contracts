@@ -266,11 +266,11 @@ pub mod MarketFactory {
                 let mut outcome = outcome1;
                 let txn: bool = dispatcher
                     .transfer_from(get_caller_address(),get_contract_address(), amount);
-                dispatcher.transfer_from(get_caller_address(), self.treasuryWallet.read(), amount * PLATFORM_FEE / 100);
+                dispatcher.transfer(self.treasuryWallet.read(), amount * PLATFORM_FEE / 100);
                 outcome.boughtShares = outcome.boughtShares
-                    + (amount);
+                    + (amount - amount * PLATFORM_FEE / 100);
                 let marketClone = self.markets.read(marketId);
-                let moneyInPool = marketClone.moneyInPool + amount;
+                let moneyInPool = marketClone.moneyInPool + amount - amount * PLATFORM_FEE / 100;
                 let newMarket = Market {
                     outcomes: (outcome, outcome2), moneyInPool: moneyInPool, ..marketClone
                 };
@@ -296,12 +296,12 @@ pub mod MarketFactory {
             } else {
                 let mut outcome = outcome2;
                 let txn: bool = dispatcher
-                    .transfer(get_contract_address(), amount);
+                    .transfer_from(get_caller_address(), get_contract_address(), amount);
                 dispatcher.transfer(self.treasuryWallet.read(), amount * PLATFORM_FEE / 100);
                 outcome.boughtShares = outcome.boughtShares
-                    + (amount);
+                    + (amount - amount * PLATFORM_FEE / 100);
                 let marketClone = self.markets.read(marketId);
-                let moneyInPool = marketClone.moneyInPool + amount;
+                let moneyInPool = marketClone.moneyInPool + amount - amount * PLATFORM_FEE / 100;
                 let marketNew = Market {
                     outcomes: (outcome1, outcome), moneyInPool: moneyInPool, ..marketClone
                 };
