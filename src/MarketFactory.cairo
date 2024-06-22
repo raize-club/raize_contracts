@@ -76,6 +76,8 @@ pub trait IMarketFactory<TContractState> {
     ) -> (Outcome, UserPosition);
 
     fn getUserTotalClaimable(self: @TContractState, user: ContractAddress) -> u256;
+
+    fn hasUserPlacedBet(self: @TContractState, user: ContractAddress, marketId: u256) -> bool;
 }
 
 pub trait IMarketFactoryImpl<TContractState> {
@@ -219,6 +221,11 @@ pub mod MarketFactory {
             self.markets.write(marketId, market);
             let currentMarket = self.markets.read(marketId);
             self.emit(MarketToggled { market: currentMarket });
+        }
+
+        fn hasUserPlacedBet(self: @ContractState, user: ContractAddress, marketId: u256) -> bool {
+            let outcome = self.userBet.read((user, marketId));
+            return !outcome.boughtShares.is_zero();
         }
 
         fn checkForApproval(self: @ContractState, token: ContractAddress, amount: u256) -> bool {
