@@ -1,0 +1,3 @@
+[submodule "raize-frontend"]
+	path = raize-frontend
+	url = https://github.com/raize-club/raize-frontend
