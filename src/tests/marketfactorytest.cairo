@@ -2,8 +2,8 @@ use core::option::OptionTrait;
 use core::fmt::Display;
 use core::traits::AddEq;
 use snforge_std::{
-    declare, start_mock_call, test_address, start_cheat_caller_address, stop_cheat_caller_address, cheat_caller_address_global,
-    ContractClassTrait
+    declare, start_mock_call, test_address, start_cheat_caller_address, stop_cheat_caller_address,
+    cheat_caller_address_global, ContractClassTrait
 };
 use starknet::{
     ContractAddress, contract_address_const, get_caller_address, get_contract_address,
@@ -46,25 +46,24 @@ fn deployMarketContract() -> ContractAddress {
 
 // should create a market
 #[test]
-fn createMarket() {
+fn create_market() {
     let marketContract = deployMarketContract();
-    let tokenAddress = fakeERCDeployment();
+    // let tokenAddress = fakeERCDeployment();
 
     let dispatcher = IMarketFactoryDispatcher { contract_address: marketContract };
 
     start_cheat_caller_address(marketContract, contract_address_const::<1>());
     dispatcher
-        .createMarket(
+        .create_market(
             "Trump vs Biden",
             "Will Trump emerge victorious again?",
             ('Yes', 'No'),
-            tokenAddress,
             'Life',
             "trump.png",
-            1818704106
+            2018704106
         );
 
-    let marketCount = dispatcher.getMarketCount();
+    let marketCount = dispatcher.get_market_count();
 
     assert(marketCount == 1, 'market count should be 1');
 }
@@ -78,8 +77,8 @@ fn shouldSetTreasury() {
 
     let dispatcher = IMarketFactoryDispatcher { contract_address: marketContract };
 
-    dispatcher.setTreasuryWallet(contract_address_const::<1>());
-    let treasury = dispatcher.getTreasuryWallet();
+    dispatcher.set_treasury_wallet(contract_address_const::<1>());
+    let treasury = dispatcher.get_treasury_wallet();
     assert(treasury == contract_address_const::<1>(), 'treasury not set!');
 }
 
@@ -94,13 +93,12 @@ fn shouldAcceptBets() {
 
     let tokenDispatcher = IERC20Dispatcher { contract_address: tokenAddress };
 
-    dispatcher.setTreasuryWallet(contract_address_const::<1>());
+    dispatcher.set_treasury_wallet(contract_address_const::<1>());
     dispatcher
-        .createMarket(
+        .create_market(
             "Trump vs Biden",
             "Will Trump emerge victorious again?",
             ('Yes', 'No'),
-            tokenAddress,
             'Life',
             "trump.png",
             1818704106
@@ -113,7 +111,7 @@ fn shouldAcceptBets() {
     assert(tx == true, 'tx failed!');
     // let allowance = tokenDispatcher.allowance(contract_address_const::<1>(), marketContract);
     // print!("allowance: {} \n", allowance);
-    let tx = dispatcher.buyShares(1, 0, 1000);
+    let tx = dispatcher.buy_shares(1, 0, 1000);
     let balance_of = tokenDispatcher.balance_of(get_caller_address());
     print!("Balance of caller {:?} \n: ", balance_of);
     let balance_of_contract = tokenDispatcher.balance_of(marketContract);
@@ -132,7 +130,7 @@ fn shouldChangeOdds() {
     let tokenDispatcher = IERC20Dispatcher { contract_address: tokenAddress };
 
     dispatcher
-        .createMarket(
+        .create_market(
             "Trump vs Biden",
             "Will Trump emerge victorious again?",
             ('Yes', 'No'),
@@ -168,7 +166,7 @@ fn shouldKeepFees() {
     let tokenDispatcher = IERC20Dispatcher { contract_address: tokenAddress };
 
     dispatcher
-        .createMarket(
+        .create_market(
             "Trump vs Biden",
             "Will Trump emerge victorious again?",
             ('Yes', 'No'),
@@ -199,7 +197,7 @@ fn shouldAddMoney() {
     let tokenDispatcher = IERC20Dispatcher { contract_address: tokenAddress };
 
     dispatcher
-        .createMarket(
+        .create_market(
             "Trump vs Biden",
             "Will Trump emerge victorious again?",
             ('Yes', 'No'),
@@ -233,9 +231,9 @@ fn shouldLetClaimWinnings() {
     let tokenDispatcher = IERC20Dispatcher { contract_address: tokenAddress };
 
     start_cheat_caller_address(marketContract, contract_address_const::<1>());
-    dispatcher.setTreasuryWallet(contract_address_const::<1>());
+    dispatcher.set_treasury_wallet(contract_address_const::<1>());
     dispatcher
-        .createMarket(
+        .create_market(
             "Trump vs Biden",
             "Will Trump emerge victorious again?",
             ('Yes', 'No'),
@@ -255,15 +253,14 @@ fn shouldLetClaimWinnings() {
     tokenDispatcher.transfer(contract_address_const::<2>(), 100000);
     tokenDispatcher.transfer(marketContract, 100000);
     stop_cheat_caller_address(tokenAddress);
-    start_cheat_caller_address(marketContract,contract_address_const::<2>());
-    start_cheat_caller_address(tokenAddress,contract_address_const::<2>());
+    start_cheat_caller_address(marketContract, contract_address_const::<2>());
+    start_cheat_caller_address(tokenAddress, contract_address_const::<2>());
     dispatcher.buyShares(1, 0, 100);
     stop_cheat_caller_address(marketContract);
     start_cheat_caller_address(marketContract, contract_address_const::<1>());
     dispatcher.settleMarket(1, 0);
     stop_cheat_caller_address(marketContract);
     let balance = tokenDispatcher.balance_of(contract_address_const::<2>());
-
 
     start_cheat_caller_address(marketContract, contract_address_const::<2>());
     dispatcher.claimWinnings(1, contract_address_const::<2>());
@@ -286,22 +283,15 @@ fn shouldLetOwnerWithdrawFees() {
     let tokenDispatcher = IERC20Dispatcher { contract_address: tokenAddress };
 
     dispatcher
-        .createMarket(
+        .create_market(
             "Trump vs Biden",
             "Will Trump emerge victorious again?",
             ('Yes', 'No'),
-            tokenAddress,
             'Politics',
             "trump.png",
             1818704106
         );
-
-    let approval = dispatcher.checkForApproval(tokenAddress, 1000);
-    if approval == false {
-        let tx = tokenDispatcher.approve(marketContract, 1000);
-        assert(tx == true, 'tx failed!');
-    }
-    dispatcher.buyShares(1, 0, 10);
+    dispatcher.buy_shares(1, 0, 10);
 // let fees = dispatcher.getFeesAccumulated(tokenAddress);
 // dispatcher.withdrawFromTreasury(tokenAddress);
 // let updatedFees = dispatcher.getFeesAccumulated(tokenAddress);
